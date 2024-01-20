@@ -1,0 +1,38 @@
+{
+  "name": "HermesClient",
+  "description": "HermesClient implements the HERMES communication protocol.",
+  "keywords": "hermes,protocol,communication",
+  "authors": [
+    {
+      "name": "Dominique CLAUSE",
+      "url": "https://github.com/dclause",
+      "maintainer": true
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dclause/hermes-arduino-client.git"
+  },
+  "version": "0.1.0",
+  "license": "GPLv3",
+  "homepage": "https://github.com/dclause/hermes-arduino-client",
+  "frameworks": "arduino",
+  "platforms": "atmelavr",
+  "headers": "HermesClient.h",
+  "export": {
+    "exclude": [
+      "docs",
+      "extras",
+      "cmake",
+      "examples"
+    ]
+  },
+  "build": {
+    "srcFilter": [
+      "+<*.c>",
+      "+<*.cpp>",
+      "+<*.h>"
+    ],
+    "libArchive": false
+  }
+}

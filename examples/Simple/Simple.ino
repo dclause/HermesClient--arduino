@@ -4,7 +4,7 @@
 *
 * To be used with a USB cable connection: uncomment the following to use it. */
 #define USE_SERIAL_PROTOCOL
-#define BAUDRATE 115200
+#define BAUDRATE 9600
 
 /*****************************************************************************
  *                               ETHERNET                                    *
@@ -41,18 +41,12 @@
 
 #include <Arduino.h>
 #include <HermesClient.h>
-#ifdef USE_PLATFORMIO_DEBUG
-#include "avr8-stub.h"
-#include "app_api.h"
-#endif
 
 void setup() {
-#ifdef USE_PLATFORMIO_DEBUG
-    debug_init();
-#endif
 
-#if ACTIVATE_DEBUG && defined(SERIAL_DEBUGGER)
-    SERIAL_DEBUGGER.begin(9600);
+
+#if ACTIVATE_DEBUG && FORCE_SERIAL_DEBUG && !defined(USE_SERIAL_PROTOCOL)
+    Serial.begin(9600);
 //    IO::blink(5)
 #endif
 
