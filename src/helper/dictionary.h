@@ -60,7 +60,7 @@ enum class MessageCode : uint8_t {
 
     // //////////
     // DEVICES
-    DIGITAL_WRITE = 41,
+    DIGITAL_WRITE = 87, // 'W'
     SERVO = 42,
 
     // //////////
