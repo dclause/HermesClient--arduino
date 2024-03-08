@@ -27,7 +27,7 @@ class ServoDevice : public AbstractDevice {
         int8_t movement_direction_ = 0;
 
         uint16_t default_position_ms_ = 928;
-        float current_position_ms_ = 928;
+        uint16_t current_position_ms_ = 928;
         uint16_t target_position_ms_ = 928;
         uint16_t start_deceleration_position_ms_ = 0;
 
@@ -48,15 +48,18 @@ class ServoDevice : public AbstractDevice {
         // Expressed in degree per second (°/sec)
         // Negative value means infinite.
         int16_t max_speed_ms_ = -1;
-        int16_t acceleration_ms_ = -1;
+        int16_t max_acceleration_ms_ = -1;
 
         // Expressed in degree per second (°/sec)
-        float current_speed_ms_ = 0;
-        float max_reached_speed_ms = 0;
+        uint16_t current_speed_ms_ = 0;
+        uint16_t target_speed_ms_ = 0;
+        uint16_t max_reached_speed_ms = 0;
 
     public:
-        // We expect 2bytes payload as a position between 0-360° or 544-2400 microseconds (µs) needs 16bits of size to express.
-        ServoDevice() : AbstractDevice(2) {}
+        // We expect 4bytes payload as:
+        //  - a position between 0-360° or 544-2400 microseconds (µs) (needs 16bits of size to express).
+        //  - a speed between -1 and 32767°/sec (needs 16 signed bits to express).
+        ServoDevice() : AbstractDevice(4) {}
 
         String getName() const { return "SERVO"; }
 
@@ -66,29 +69,29 @@ class ServoDevice : public AbstractDevice {
 
             // All speed/position/accelerations are two bytes word (0 to 360°) we ensure here to have a non-possible
             // value, even for the case we use Servo ms (544 to 2400).
-            uint16_t defaultPosition = this->readPosition_(payload[2], payload[3]);
-            this->tmin_ = this->readPosition_(payload[4], payload[5]);
-            this->tmax_ = this->readPosition_(payload[6], payload[7]);
-            this->min_ = this->readPosition_(payload[8], payload[9]);
-            this->max_ = this->readPosition_(payload[10], payload[11]);
-            uint16_t maxSpeed = this->readPosition_(payload[12], payload[13]);
-            uint16_t maxAcceleration = this->readPosition_(payload[14], payload[15]);
+            uint16_t defaultPosition = this->read16bits(payload[2], payload[3]);
+            this->tmin_ = this->read16bits(payload[4], payload[5]);
+            this->tmax_ = this->read16bits(payload[6], payload[7]);
+            this->min_ = this->read16bits(payload[8], payload[9]);
+            this->max_ = this->read16bits(payload[10], payload[11]);
+            this->max_speed_ms_ = (int16_t)(this->read16bits(payload[12], payload[13]));
+            this->max_acceleration_ms_ = (int16_t)(this->read16bits(payload[14], payload[15]));
 
             this->default_position_ms_ = map(defaultPosition,
                                              this->tmin_,
                                              this->tmax_,
                                              MIN_PULSE_WIDTH,
                                              MAX_PULSE_WIDTH);
-            this->max_speed_ms_ = map(maxSpeed,
-                                      this->tmin_,
-                                      this->tmax_,
-                                      MIN_PULSE_WIDTH,
-                                      MAX_PULSE_WIDTH) - MIN_PULSE_WIDTH;
-            this->acceleration_ms_ = map(maxAcceleration,
-                                         this->tmin_,
-                                         this->tmax_,
-                                         MIN_PULSE_WIDTH,
-                                         MAX_PULSE_WIDTH) - MIN_PULSE_WIDTH;
+
+            // Convert max speed °/sec to ms/sec
+            if (this->max_speed_ms_ > 0) {
+                this->max_speed_ms_ = this->max_speed_ms_ * (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) / (this->tmax_ - this->tmin_);
+            }
+
+            // Convert max acceleration °/sec to ms/sec
+            if (this->max_acceleration_ms_ > 0) {
+                this->max_acceleration_ms_ = this->max_acceleration_ms_ * (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) / (this->tmax_ - this->tmin_);
+            }
 
             this->target_position_ms_ = default_position_ms_;
             this->current_position_ms_ = default_position_ms_;
@@ -102,7 +105,8 @@ class ServoDevice : public AbstractDevice {
         void executePayload(uint8_t *payload) {
             TRACE("-----------");
             TRACE("Process SERVO command:");
-            uint16_t targetPosition = this->readPosition_(payload[0], payload[1]);
+            uint16_t targetPosition = this->read16bits(payload[0], payload[1]);
+            int16_t targetSpeed = this->read16bits(payload[2], payload[3]);
             // Cap with the min/max values (this should be done by caller, hence just be a security issue here)
             targetPosition = max(this->min_, targetPosition);
             targetPosition = min(this->max_, targetPosition);
@@ -111,10 +115,18 @@ class ServoDevice : public AbstractDevice {
                                             this->tmax_,
                                             MIN_PULSE_WIDTH,
                                             MAX_PULSE_WIDTH);
-            this->startMovementPhase1_();
+
+            // Convert max speed °/sec to ms/sec
+            this->target_speed_ms_ = (targetSpeed > 0) ? targetSpeed * (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) / (this->tmax_ - this->tmin_) : targetSpeed;
+            // Cap with max speed (this should be done by caller, hence just be a security issue here)
+            this->target_speed_ms_ = this->max_speed_ms_ > 0 ? min(this->max_speed_ms_, this->target_speed_ms_) : this->target_speed_ms_;
+
             TRACE("  > Servo on PIN " + String(this->pin_) +
-                  " requests position: " + String(targetPosition) + "(" + String(this->target_position_ms_) + ")"
+                  " requests position: " + String(targetPosition) + "(" + String(this->target_position_ms_) + ")" +
+                  " requests speed: " + String(targetSpeed) + "(" + String(this->target_speed_ms_) + ")"
             );
+
+            this->startMovementPhase1_();
         }
 
         /**
@@ -130,7 +142,7 @@ class ServoDevice : public AbstractDevice {
             // Phase1: acceleration.
             if (this->phase_ == 1) {
                 this->current_speed_ms_ = this->getSpeedWithAcceleration_(current_time);
-                if (this->current_speed_ms_ > this->max_speed_ms_) {
+                if (this->current_speed_ms_ > this->target_speed_ms_) {
                     this->startMovementPhase2_();
                 }
                 this->current_position_ms_ = this->getPositionAt_(current_time);
@@ -154,6 +166,9 @@ class ServoDevice : public AbstractDevice {
                 this->current_position_ms_ = this->getPositionAt_(current_time);
                 if (this->shouldStartPhase3_()) {
                     this->startMovementPhase3_();
+                }
+                if (this->current_position_ms_ == this->target_position_ms_) {
+                    this->startMovementPhase4_();
                 }
                 this->servo_.writeMicroseconds((int) this->current_position_ms_);
 
@@ -207,7 +222,7 @@ class ServoDevice : public AbstractDevice {
                    "\t\tmin:" + String(this->min_) + "\n" +
                    "\t\tmax:" + String(this->max_) + "\n" +
                    "\t\tmax speed:" + String(this->max_speed_ms_) + "\n" +
-                   "\t\tmax acceleration:" + String(this->acceleration_ms_);
+                   "\t\tmax acceleration:" + String(this->max_acceleration_ms_);
         }
 
     private:
@@ -221,6 +236,7 @@ class ServoDevice : public AbstractDevice {
             this->phase_started_at_ms_ = 0;
         }
 
+        // Phase1: acceleration.
         void startMovementPhase1_() {
             this->phase_ = 1;
             this->phase_started_at_ms_ = millis();
@@ -234,7 +250,7 @@ class ServoDevice : public AbstractDevice {
             this->movement_direction_ = (this->target_position_ms_ > this->current_position_ms_) ? 1 : -1;
 
             // If no acceleration, we can go directly to phase2:
-            if (this->acceleration_ms_ < 0) {
+            if (this->max_acceleration_ms_ < 0) {
                 return this->startMovementPhase2_();
             }
 
@@ -244,8 +260,11 @@ class ServoDevice : public AbstractDevice {
             // NOTE: acceleration and deceleration is done via the same formula. Hence, the deceleration duration is the same
             // as acceleration phase.
             // distance spent during acc/dec is: Vmax² / 2a
-            uint32_t distanceDuringAcceleration = pow(this->max_speed_ms_, 2) / (2 * this->acceleration_ms_);
-            uint32_t halfWay = abs(this->target_position_ms_ - this->current_position_ms_) / 2;
+            uint32_t totalDistance = abs(this->target_position_ms_ - this->current_position_ms_);
+            uint32_t distanceDuringAcceleration = this->target_speed_ms_ > 0
+                                                          ? pow(this->target_speed_ms_, 2) / (2 * this->max_acceleration_ms_)
+                                                          : totalDistance;
+            uint32_t halfWay = totalDistance / 2;
             if (distanceDuringAcceleration > halfWay) {
                 distanceDuringAcceleration = halfWay;
             }
@@ -257,13 +276,15 @@ class ServoDevice : public AbstractDevice {
             TRACE(" - should start decelerate at: " + String(this->start_deceleration_position_ms_));
         }
 
+        // Phase2: run at full speed.
         void startMovementPhase2_() {
             this->phase_ = 2;
             this->phase_started_at_ms_ = millis();
-            this->current_speed_ms_ = this->max_speed_ms_;
+            this->current_speed_ms_ = this->target_speed_ms_;
             TRACE(" > Start phase2");
         }
 
+        // Phase2: decelerate.
         void startMovementPhase3_() {
             this->phase_ = 3;
             this->phase_started_at_ms_ = millis();
@@ -271,6 +292,7 @@ class ServoDevice : public AbstractDevice {
             TRACE(" > Start phase3");
         }
 
+        // Phase = 4: wait before detach.
         void startMovementPhase4_() {
             this->phase_ = 4;
             this->phase_started_at_ms_ = millis();
@@ -278,7 +300,7 @@ class ServoDevice : public AbstractDevice {
             TRACE(" > Start phase4");
         }
 
-        bool shouldStartPhase3_() {
+        bool shouldStartPhase3_() const {
             return (this->current_position_ms_ > this->start_deceleration_position_ms_ && this->movement_direction_ == 1) ||
                    (this->current_position_ms_ < this->start_deceleration_position_ms_ && this->movement_direction_ == -1);
         }
@@ -289,8 +311,8 @@ class ServoDevice : public AbstractDevice {
          * @param byte2
          * @return
          */
-        uint16_t readPosition_(uint8_t byte1, uint8_t byte2) {
-            TRACE(String("ReadPosition:") + "\n" +
+        uint16_t read16bits(uint8_t byte1, uint8_t byte2) {
+            TRACE(String("Read bits:") + "\n" +
                   "\t\tbyte1:" + String(byte1) + '\n' +
                   "\t\tbyte2:" + String(byte2));
             return (byte1 << 8) | byte2;
@@ -302,7 +324,7 @@ class ServoDevice : public AbstractDevice {
          * @return
          */
         float getSpeedWithAcceleration_(const uint32_t time) {
-            return this->acceleration_ms_ * (time - this->phase_started_at_ms_) / 1000.0;
+            return this->max_acceleration_ms_ * (time - this->phase_started_at_ms_) / 1000.0;
         }
 
         /**
@@ -311,7 +333,7 @@ class ServoDevice : public AbstractDevice {
          * @return
          */
         float getSpeedWithDeceleration_(const uint32_t time) {
-            return this->max_reached_speed_ms - this->acceleration_ms_ * (time - this->phase_started_at_ms_) / 1000.0;
+            return this->max_reached_speed_ms - this->max_acceleration_ms_ * (time - this->phase_started_at_ms_) / 1000.0;
         }
 
 
