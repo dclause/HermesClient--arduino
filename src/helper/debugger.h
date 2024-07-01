@@ -4,8 +4,8 @@
 #include <Arduino.h>
 
 // Active debug: use 1, otherwise 0.
-#define ACTIVATE_DEBUG 1
-#define SERIAL_DEBUGGER Serial1
+#define ACTIVATE_DEBUG 0
+#define SERIAL_DEBUGGER Serial
 
 #if ACTIVATE_DEBUG && defined(SERIAL_DEBUGGER)
 
