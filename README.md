@@ -1,3 +1,8 @@
+> [!CAUTION]
+> **DEPRECATED**: This repository is archived and no longer maintained. It has been superseded by a new, Firmata-based implementation.
+> 
+> Use [**Hermes-Five - IoT & Robotics platform**](https://github.com/dclause/hermes-five) for developer-focused, hardware-agnostic board control API, or [**Hermes-Studio**](https://github.com/dclause/hermes-studio) for an all-in-one, UI-driven solution.
+
 # HermesClient
 
 HermesClient implements the Hermes communication protocol between an Hermes backend implementation and a compatible
